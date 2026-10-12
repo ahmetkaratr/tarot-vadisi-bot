@@ -4,7 +4,6 @@ import sqlite3
 import logging
 import asyncio
 import traceback
-import os
 import threading
 from flask import Flask
 
@@ -18,7 +17,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# Flask sunucusunu arka planda başlat
+# Flask sunucusunu arka planda başlat (Render port hatasını önlemek için)
 threading.Thread(target=run_flask, daemon=True).start()
 
 from dotenv import load_dotenv
@@ -35,12 +34,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # ===========================================================================
 # ⚙️ YÖNETİCİ / İŞLETME AYARLARI
 # ===========================================================================
-YONETICI_ID = 123456789                 # @userinfobot'tan aldığın ID numaran
+YONETICI_ID = 123456789             # @userinfobot'tan aldığın ID numaran
 YONETICI_KULLANICI_ADI = "ahmetkaratr"  # Yönlendirilecek Telegram kullanıcı adın
-
-# Telegram Mistik Hareketli Sticker / GIF Bağlantıları (Örnek Animasyonlar)
-STICKER_MISTIK_KURE = "CAACAgIAAxkBAAIBm2..." # İsteğe bağlı kendi Sticker File ID'ni koyabilirsin
-GIF_BEKLEME_URL = "https://media.giphy.com/media/3o72F8t9TDi2xVnxOE/giphy.gif"
 
 # Resmi Gemini istemcisi
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
@@ -76,7 +71,7 @@ TAROT_CARDS = ["Deli", "Büyücü", "Azize", "İmparatoriçe", "İmparator", "Az
 BURCLAR = ["Koç ♈", "Boğa ♉", "İkizler ♊", "Yengeç ♋", "Aslan ♌", "Başak ♍", "Terazi ♎", "Akrep ♏", "Yay ♐", "Oğlak ♑", "Kova ♒", "Balık ♓"]
 
 # Asenkron Gemini istek fonksiyonu
-async def gemini_istek_gonder_sdk(contents, model='gemini-3.8-flash'):
+async def gemini_istek_gonder_sdk(contents, model='gemini-2.5-flash'):
     loop = asyncio.get_running_loop()
     def call_gemini():
         return gemini_client.models.generate_content(
@@ -92,6 +87,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect("tarot_vadisi.db")
     cursor = conn.cursor()
     cursor.execute("INSERT OR IGNORE INTO kullanicilar (telegram_id, durum) VALUES (?, 'yok')", (user.id,))
+    cursor.execute("UPDATE kullanicilar SET durum = 'yok', paket = NULL, niyet = NULL WHERE telegram_id = ?", (user.id,))
     conn.commit()
     conn.close()
 
@@ -183,7 +179,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
             traceback.print_exc()
-            await query.message.reply_text("🔮 Yoğun mistik enerjiler nedeniyle şu an hat sokağa kapandı, lütfen birkaç saniye sonra tekrar deneyin.")
+            await query.message.reply_text("🔮 Yoğun mistik enerjiler nedeniyle şu an hat kapandı, lütfen birkaç saniye sonra tekrar deneyin.")
 
     # --- 3. NİYET SEÇİM AŞAMASI (FAL ÖNCESİ) ---
     elif data in ["kahve_fali", "el_fali"]:
@@ -253,7 +249,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
         
-        # Kullanıcıya bilgilendirme
         keyboard = [[InlineKeyboardButton("💬 Doğrudan Uzmanımıza Yazın", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")]]
         await update.message.reply_text(
             "✅ *Bilgileriniz başarıyla alındı!*\n\n"
@@ -262,7 +257,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         
-        # Yöneticiye Bildirim Gönderimi
         try:
             await context.bot.send_message(
                 chat_id=YONETICI_ID,
@@ -275,11 +269,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- FOTOĞRAFLI FAL İŞLEME ---
     if durum in ["kahve_fali", "el_fali"]:
-        islem_adi = "telveler ve semboller" if durum == "kahve_fali" else "avuç içi çizgileri"
-        
-        # Animatik mesaj etkisi
         await update.message.reply_text(
-            f"🔮 *Fotoğrafınız alındı! Enerji akışı ({niyet} odağında) inceliyor...*\n\n"
+            f"🔮 *Fotoğrafınız alındı! Enerji akışı ({niyet} odağında) inceleniyor...*\n\n"
             f"⏳ Yoğunluğa bağlı olarak bu işlem *1-2 dakika* sürebilir. Lütfen bekleyin, falınız hazır olduğunda buradan iletilecektir.",
             parse_mode="Markdown"
         )
@@ -315,7 +306,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             ara_gorev.cancel()
             
-            # Şanslı Semboller Eklentisi
             sans_rengi = random.choice(["Lapis Lazuli Mavi", "Zümrüt Yeşili", "Yakut Kırmızı", "Gümüş Gri"])
             sans_sayisi = random.randint(1, 99)
             dogal_tas = random.choice(["Ametist", "Sitrin", "Kuvars", "Kaplan Gözü"])
@@ -358,7 +348,12 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("onay", onay_ver))
     application.add_handler(CallbackQueryHandler(button_click))
-    application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE | filters.TEXT, handle_media))
+    
+    # Fotoğraflar ve belgeler için
+    application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_media))
+    
+    # Kullanıcı "merhaba", "selam" vb. düz bir metin yazdığında doğrudan /start menüsünü açması için:
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 
     print("🔮 Tarot Vadisi Animatik & VIP sürümüyle çalışmaya başladı...")
     application.run_polling()

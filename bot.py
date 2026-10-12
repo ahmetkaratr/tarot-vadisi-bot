@@ -103,8 +103,8 @@ def hak_kontrol_ve_duser(user_id):
             conn.close()
             return True, kullanilan_hak + 1
 
-# Kararlı ve hatasız Gemini istek fonksiyonu
-async def gemini_istek_gonder_sdk(contents, model='gemini-3.8-flash'):
+# En kararlı model (gemini-2.5-flash) ile güvenli istek gönderimi
+async def gemini_istek_gonder_sdk(contents, model='gemini-2.5-flash'):
     loop = asyncio.get_running_loop()
     def call_gemini():
         response = gemini_client.models.generate_content(
@@ -147,7 +147,7 @@ async def id_ogren(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     await update.message.reply_text(f"🆔 Telegram ID'niz: `{user_id}`", parse_mode="Markdown")
 
-# 📢 YÖNETİCİ TOPLU DUYURU / BİLDİRİM KOMUTU
+# 📢 YÖNETİCİ TOPLU DUYURU KOMUTU
 async def duyuru_gonder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     
@@ -190,6 +190,67 @@ async def duyuru_gonder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔴 Başarısız / Engelleyen: {basarisiz}",
         parse_mode="Markdown"
     )
+
+# 🎁 YÖNETİCİ HAK VERME KOMUTU (/hakver <user_id> <ek_hak>)
+async def hak_ver(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    
+    if user_id != YONETICI_ID:
+        await update.message.reply_text("⚠️ Bu komutu sadece yönetici kullanabilir.")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "⚠️ *Eksik Parametre!*\n\n"
+            "Kullanım Şekli:\n`/hakver <kullanici_id> <verilecek_hak_sayisi>`\n\n"
+            "Örnek: `/hakver 123456789 3`",
+            parse_mode="Markdown"
+        )
+        return
+
+    try:
+        hedef_id = int(context.args[0])
+        ek_hak = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("⚠️ Kullanıcı ID ve hak sayısı sayı olmalıdır!")
+        return
+
+    conn = sqlite3.connect("tarot_vadisi.db")
+    cursor = conn.cursor()
+    
+    # Kullanıcı veritabanında var mı kontrol et
+    cursor.execute("SELECT kullanilan_hak FROM kullanicilar WHERE telegram_id = ?", (hedef_id,))
+    row = cursor.fetchone()
+    
+    if not row:
+        # Kullanıcı henüz botu başlatmamışsa kaydını açıp hakkını düşürebiliriz
+        cursor.execute("INSERT INTO kullanicilar (telegram_id, kullanilan_hak, son_tarih) VALUES (?, ?, ?)", 
+                       (hedef_id, max(0, GUNLUK_LIMIT - ek_hak), datetime.now().strftime("%Y-%m-%d")))
+    else:
+        # Mevcut kullanılan haktan eklenen miktar kadar düşerek hak tanımış oluyoruz
+        mevcut_kullanilan = row[0] or 0
+        yeni_kullanilan = max(0, mevcut_kullanilan - ek_hak)
+        cursor.execute("UPDATE kullanicilar SET kullanilan_hak = ? WHERE telegram_id = ?", (yeni_kullanilan, hedef_id))
+        
+    conn.commit()
+    conn.close()
+
+    await update.message.reply_text(
+        f"✅ *Başarıyla Hak Tanındı!*\n\n"
+        f"👤 Hedef ID: `{hedef_id}`\n"
+        f"🎁 Eklenen Hak: *+{ek_hak}*",
+        parse_mode="Markdown"
+    )
+    
+    # Kullanıcıya da bildirim gönder
+    try:
+        await context.bot.send_message(
+            chat_id=hedef_id,
+            text=f"🎁 *Müjde!* Yönetici tarafından hesabınıza *+{ek_hak} adet* ekstra fal hakkı tanımlandı! Dilediğiniz gibi fal baktırabilirsiniz ✨",
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
 
 # Menü Tıklamaları ve İnteraktif Akış
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -411,7 +472,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             img = Image.open(img_path)
-            # Gemini görsel destekli istek formatı
             cevap_metni = await gemini_istek_gonder_sdk([prompt, img])
             
             keyboard = [
@@ -451,12 +511,13 @@ def main():
     application.add_handler(CommandHandler("onay", onay_ver))
     application.add_handler(CommandHandler("id", id_ogren))
     application.add_handler(CommandHandler("duyuru", duyuru_gonder))
+    application.add_handler(CommandHandler("hakver", hak_ver))  # 🎁 Yeni eklenen hak verme komutu
     application.add_handler(CallbackQueryHandler(button_click))
     
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_media))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 
-    print("🔮 Tarot Vadisi Final Kararlı Sürüm Başlatıldı...")
+    print("🔮 Tarot Vadisi Hak Verme Özellikli Sürüm Başlatıldı...")
     application.run_polling()
 
 if __name__ == "__main__":

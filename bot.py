@@ -103,7 +103,8 @@ def hak_kontrol_ve_duser(user_id):
             conn.close()
             return True, kullanilan_hak + 1
 
-async def gemini_istek_gonder_sdk(contents, model='gemini-2.0-flash'):
+# Güncel ve kararlı model ismi (gemini-3.8-flash)
+async def gemini_istek_gonder_sdk(contents, model='gemini-3.8-flash'):
     loop = asyncio.get_running_loop()
     def call_gemini():
         response = gemini_client.models.generate_content(
@@ -410,7 +411,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             img = Image.open(img_path)
-            # Resim ve prompt'u doğru SDK formatında yolla
             cevap_metni = await gemini_istek_gonder_sdk([prompt, img])
             
             keyboard = [
@@ -455,7 +455,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_media))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 
-    print("🔮 Tarot Vadisi Kesin Çözümlü Sürüm Başlatıldı...")
+    print("🔮 Tarot Vadisi Model Güncellemeli Sürüm Başlatıldı...")
     application.run_polling()
 
 if __name__ == "__main__":

@@ -106,12 +106,12 @@ def hak_kontrol_ve_duser(user_id):
 async def gemini_istek_gonder_sdk(contents, model='gemini-2.0-flash'):
     loop = asyncio.get_running_loop()
     def call_gemini():
-        return gemini_client.models.generate_content(
+        response = gemini_client.models.generate_content(
             model=model,
             contents=contents
         )
-    response = await loop.run_in_executor(None, call_gemini)
-    return response.text
+        return response.text
+    return await loop.run_in_executor(None, call_gemini)
 
 # /start ekranı
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -132,8 +132,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("☕ Kahve Falı (AI)", callback_data="kahve_fali"), InlineKeyboardButton("✋ El Falı (AI)", callback_data="el_fali")],
         [InlineKeyboardButton("🟢 Evet / Hayır Tarotu", callback_data="evet_hayir"), InlineKeyboardButton("🌟 Günlük Burç & Aura", callback_data="burc_secim")],
-        [InlineKeyboardButton("💎 VIP Detaylı Özel Açılım", callback_data="paket_detayli")],
-        [InlineKeyboardButton("🔮 Birebir Canlı Seans / Özel Bakım", callback_data="canli_bakim")]
+        [InlineKeyboardButton("💎 VIP Detaylı Özel Açılım", callback_data="paket_detayli"), InlineKeyboardButton("🔮 Birebir Canlı Seans", callback_data="canli_bakim")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -208,7 +207,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start(update, context)
         return
 
-    # 1. ÖNCE NİYET TIKLAMA İŞLEYİCİSİ
+    # 1. NİYET TIKLAMA İŞLEYİCİSİ
     elif data.startswith("niyetsec_"):
         parts = data.split("_")
         niyet_konusu = parts[1]
@@ -411,6 +410,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             img = Image.open(img_path)
+            # Resim ve prompt'u doğru SDK formatında yolla
             cevap_metni = await gemini_istek_gonder_sdk([prompt, img])
             
             keyboard = [
@@ -455,7 +455,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_media))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 
-    print("🔮 Tarot Vadisi Kararlı Sürüm Başlatıldı...")
+    print("🔮 Tarot Vadisi Kesin Çözümlü Sürüm Başlatıldı...")
     application.run_polling()
 
 if __name__ == "__main__":

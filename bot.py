@@ -180,7 +180,7 @@ async def duyuru_gonder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(chat_id=k_id, text=duyuru_metni, parse_mode="Markdown")
             basarili += 1
-            await asyncio.sleep(0.05)  # Telegram spam sınırına takılmamak için minik ara
+            await asyncio.sleep(0.05)
         except Exception:
             basarisiz += 1
 
@@ -202,13 +202,13 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor = conn.cursor()
     
     if data == "main_menu":
-        cursor.execute("UPDATE kullanicilar SET durum = 'yok' WHERE telegram_id = ?", (user_id,))
+        cursor.execute("UPDATE kullanicilar SET durum = 'yok', niyet = NULL, paket = NULL WHERE telegram_id = ?", (user_id,))
         conn.commit()
         conn.close()
         await start(update, context)
         return
 
-    # Burç Seçimi
+    # Burç Seçimi Menüsü
     elif data == "burc_secim":
         keyboard = []
         row = []
@@ -219,7 +219,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 row = []
         if row:
             keyboard.append(row)
-        keyboard.append([InlineKeyboardButton("🏠 Ana Menüye Dön", callback_data="main_menu")])
+        keyboard.append([InlineKeyboardButton("🔙 Geri Dön", callback_data="main_menu")])
         await query.edit_message_text("🌟 *Lütfen Burcunuzu Seçin:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif data.startswith("burcyorum_"):
@@ -229,7 +229,10 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt = f"Sen Tarot Vadisi astrologusun. {secilen_burc} burcu için bugün geçerli olacak tam 2 cümlelik gizemli ve etkileyici bir günlük aura yorumu yaz."
         try:
             yorum = await gemini_istek_gonder_sdk(prompt)
-            keyboard = [[InlineKeyboardButton("💎 VIP Derin Burç Analizi Al", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")], [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]]
+            keyboard = [
+                [InlineKeyboardButton("💎 VIP Derin Burç Analizi Al", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")], 
+                [InlineKeyboardButton("🔙 Geri Dön", callback_data="burc_secim"), InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]
+            ]
             await query.message.reply_text(
                 f"🌟 *{secilen_burc} - Günün Aura Yorumu:*\n\n{yorum}\n\n✨ *Şanslı Rengin:* {random.choice(['Safir Mavisi', 'Zümrüt Yeşili', 'Kehribar'])}",
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -270,7 +273,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             await query.message.reply_text("🔮 Bir hata oluştu, lütfen tekrar deneyin.")
 
-    # Fal Niyet Seçimi
+    # Fal Niyet Seçim Menüsü
     elif data in ["kahve_fali", "el_fali"]:
         cursor.execute("UPDATE kullanicilar SET durum = ? WHERE telegram_id = ?", (f"niyet_bekliyor_{data}", user_id))
         conn.commit()
@@ -279,7 +282,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("❤️ Aşk & İlişkiler", callback_data=f"niyetsec_Aşk_{data}")],
             [InlineKeyboardButton("💼 Kariyer & Para", callback_data=f"niyetsec_Kariyer_{data}")],
-            [InlineKeyboardButton("✨ Genel Gelecek", callback_data=f"niyetsec_Genel_{data}")]
+            [InlineKeyboardButton("✨ Genel Gelecek", callback_data=f"niyetsec_Genel_{data}")],
+            [InlineKeyboardButton("🔙 Geri Dön", callback_data="main_menu")]
         ]
         await query.edit_message_text(
             "🔮 *Niyetinizi Seçin:*",
@@ -287,6 +291,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
+    # 🛠️ DÜZELTİLEN KISIM: Niyet Tıklama İşleyicisi
     elif data.startswith("niyetsec_"):
         _, niyet_konusu, fal_turu = data.split("_")
         cursor.execute("UPDATE kullanicilar SET durum = ?, niyet = ? WHERE telegram_id = ?", (fal_turu, niyet_konusu, user_id))
@@ -294,8 +299,11 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         
         tip = "Türk kahvesi fincanı" if fal_turu == "kahve_fali" else "sağ el avuç içi"
+        keyboard = [[InlineKeyboardButton("🔙 Geri Dön", callback_data=fal_turu), InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]]
+        
         await query.edit_message_text(
-            f"🎯 *Niyet:* {niyet_konusu}\n\n📸 Lütfen net bir *{tip}* fotoğrafı gönderin.",
+            f"🎯 *Niyet:* {niyet_konusu}\n\n📸 Lütfen bota net bir *{tip}* fotoğrafı gönderin.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
 
@@ -306,12 +314,16 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
         
+        keyboard = [[InlineKeyboardButton("🔙 Geri Dön", callback_data="main_menu")]]
         await query.edit_message_text(
             f"👑 *{paket_adi} Randevu Talebi*\n\n"
             "Detaylı analiz için şu bilgileri **tek mesajda yollayın**:\n"
             "1️⃣ İsim & Soyisim\n2️⃣ Doğum Tarihi & Burç\n3️⃣ Soru / Niyet",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
+
+    conn.close()
 
 # Fotoğraf & Form İşleme
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -334,7 +346,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
         
-        keyboard = [[InlineKeyboardButton("💬 Uzmanımıza Bağlanın", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")]]
+        keyboard = [[InlineKeyboardButton("💬 Uzmanımıza Bağlanın", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")], [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]]
         await update.message.reply_text(
             "✅ *Bilgileriniz alındı!* Randevu saatini netleştirmek için doğrudan baş falcımıza yazabilirsiniz:",
             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -432,7 +444,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_media))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 
-    print("🔮 Tarot Vadisi Limitli & VIP Dönüşümlü Sürüm Başlatıldı...")
+    print("🔮 Tarot Vadisi Limitli & Geri Dönüş Tuşlu Sürüm Başlatıldı...")
     application.run_polling()
 
 if __name__ == "__main__":

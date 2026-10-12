@@ -208,6 +208,48 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start(update, context)
         return
 
+    # 1. ÖNCE NİYET TIKLAMA İŞLEYİCİSİ (Öncelik sıralaması düzeltildi)
+    elif data.startswith("niyetsec_"):
+        parts = data.split("_")
+        niyet_konusu = parts[1]
+        fal_turu = "_".join(parts[2:]) # kahve_fali veya el_fali
+        
+        cursor.execute("UPDATE kullanicilar SET durum = ?, niyet = ? WHERE telegram_id = ?", (fal_turu, niyet_konusu, user_id))
+        conn.commit()
+        conn.close()
+        
+        tip = "Türk kahvesi fincanı" if fal_turu == "kahve_fali" else "sağ el avuç içi"
+        keyboard = [
+            [InlineKeyboardButton("🔙 Niyet Değiştir", callback_data=fal_turu)],
+            [InlineKeyboardButton("🏠 Ana Menüye Dön", callback_data="main_menu")]
+        ]
+        
+        await query.edit_message_text(
+            f"🎯 *Niyetiniz Kaydedildi:* `{niyet_konusu}`\n\n"
+            f"📸 Şimdi lütfen bota net bir *{tip}* fotoğrafı gönderin.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+        return
+
+    # 2. FAL NİYET SEÇİM MENÜSÜ
+    elif data in ["kahve_fali", "el_fali"]:
+        cursor.execute("UPDATE kullanicilar SET durum = ? WHERE telegram_id = ?", (f"niyet_bekliyor_{data}", user_id))
+        conn.commit()
+        conn.close()
+        
+        keyboard = [
+            [InlineKeyboardButton("❤️ Aşk & İlişkiler", callback_data=f"niyetsec_Aşk_{data}")],
+            [InlineKeyboardButton("💼 Kariyer & Para", callback_data=f"niyetsec_Kariyer_{data}")],
+            [InlineKeyboardButton("✨ Genel Gelecek", callback_data=f"niyetsec_Genel_{data}")],
+            [InlineKeyboardButton("🔙 Geri Dön", callback_data="main_menu")]
+        ]
+        await query.edit_message_text(
+            "🔮 *Bakıma Başlamadan Önce Niyetinizi Seçin:*",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
     # Burç Seçimi Menüsü
     elif data == "burc_secim":
         keyboard = []
@@ -272,40 +314,6 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception:
             await query.message.reply_text("🔮 Bir hata oluştu, lütfen tekrar deneyin.")
-
-    # Fal Niyet Seçim Menüsü
-    elif data in ["kahve_fali", "el_fali"]:
-        cursor.execute("UPDATE kullanicilar SET durum = ? WHERE telegram_id = ?", (f"niyet_bekliyor_{data}", user_id))
-        conn.commit()
-        conn.close()
-        
-        keyboard = [
-            [InlineKeyboardButton("❤️ Aşk & İlişkiler", callback_data=f"niyetsec_Aşk_{data}")],
-            [InlineKeyboardButton("💼 Kariyer & Para", callback_data=f"niyetsec_Kariyer_{data}")],
-            [InlineKeyboardButton("✨ Genel Gelecek", callback_data=f"niyetsec_Genel_{data}")],
-            [InlineKeyboardButton("🔙 Geri Dön", callback_data="main_menu")]
-        ]
-        await query.edit_message_text(
-            "🔮 *Niyetinizi Seçin:*",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-
-    # 🛠️ DÜZELTİLEN KISIM: Niyet Tıklama İşleyicisi
-    elif data.startswith("niyetsec_"):
-        _, niyet_konusu, fal_turu = data.split("_")
-        cursor.execute("UPDATE kullanicilar SET durum = ?, niyet = ? WHERE telegram_id = ?", (fal_turu, niyet_konusu, user_id))
-        conn.commit()
-        conn.close()
-        
-        tip = "Türk kahvesi fincanı" if fal_turu == "kahve_fali" else "sağ el avuç içi"
-        keyboard = [[InlineKeyboardButton("🔙 Geri Dön", callback_data=fal_turu), InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]]
-        
-        await query.edit_message_text(
-            f"🎯 *Niyet:* {niyet_konusu}\n\n📸 Lütfen bota net bir *{tip}* fotoğrafı gönderin.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
 
     # VIP Form Aşaması
     elif data in ["paket_detayli", "canli_bakim"]:
@@ -444,7 +452,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_media))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 
-    print("🔮 Tarot Vadisi Limitli & Geri Dönüş Tuşlu Sürüm Başlatıldı...")
+    print("🔮 Tarot Vadisi Tam Düzeltilmiş Sürüm Başlatıldı...")
     application.run_polling()
 
 if __name__ == "__main__":

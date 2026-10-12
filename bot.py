@@ -103,7 +103,7 @@ def hak_kontrol_ve_duser(user_id):
             conn.close()
             return True, kullanilan_hak + 1
 
-async def gemini_istek_gonder_sdk(contents, model='gemini-2.5-flash'):
+async def gemini_istek_gonder_sdk(contents, model='gemini-2.0-flash'):
     loop = asyncio.get_running_loop()
     def call_gemini():
         return gemini_client.models.generate_content(
@@ -208,11 +208,11 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start(update, context)
         return
 
-    # 1. ÖNCE NİYET TIKLAMA İŞLEYİCİSİ (Öncelik sıralaması düzeltildi)
+    # 1. ÖNCE NİYET TIKLAMA İŞLEYİCİSİ
     elif data.startswith("niyetsec_"):
         parts = data.split("_")
         niyet_konusu = parts[1]
-        fal_turu = "_".join(parts[2:]) # kahve_fali veya el_fali
+        fal_turu = "_".join(parts[2:]) 
         
         cursor.execute("UPDATE kullanicilar SET durum = ?, niyet = ? WHERE telegram_id = ?", (fal_turu, niyet_konusu, user_id))
         conn.commit()
@@ -280,7 +280,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown"
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Burç hatası: {e}")
             await query.message.reply_text("🔮 Enerjiler şu an çok yoğun, lütfen az sonra tekrar deneyin.")
 
     # Evet / Hayır Tarotu (Limitli)
@@ -312,7 +313,8 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🃏 *Seçilen Kart:* {kart}\n\n✨ *Cevap:* {cevap_metni}\n\n*(Kalan Ücretsiz Hakkınız: {GUNLUK_LIMIT - yeni_hak})*",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Evet/Hayir hatası: {e}")
             await query.message.reply_text("🔮 Bir hata oluştu, lütfen tekrar deneyin.")
 
     # VIP Form Aşaması
@@ -425,7 +427,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             cursor.execute("UPDATE kullanicilar SET durum = 'yok', paket = NULL, niyet = NULL WHERE telegram_id = ?", (user_id,))
             conn.commit()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Fotoğraf işleme hatası: {e}")
             traceback.print_exc()
             await update.message.reply_text("🔮 Fotoğraf incelenirken bir sorun oluştu, lütfen tekrar deneyin.")
 
@@ -452,7 +455,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_media))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 
-    print("🔮 Tarot Vadisi Tam Düzeltilmiş Sürüm Başlatıldı...")
+    print("🔮 Tarot Vadisi Kararlı Sürüm Başlatıldı...")
     application.run_polling()
 
 if __name__ == "__main__":

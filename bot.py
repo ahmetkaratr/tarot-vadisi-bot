@@ -103,8 +103,8 @@ def hak_kontrol_ve_duser(user_id):
             conn.close()
             return True, kullanilan_hak + 1
 
-# En kararlı model (gemini-2.5-flash) ile güvenli istek gönderimi
-async def gemini_istek_gonder_sdk(contents, model='gemini-2.5-flash'):
+# Google'ın zorunlu kıldığı 'gemini-3.8-flash' modeli entegrasyonu
+async def gemini_istek_gonder_sdk(contents, model='gemini-3.8-flash'):
     loop = asyncio.get_running_loop()
     def call_gemini():
         response = gemini_client.models.generate_content(
@@ -218,16 +218,13 @@ async def hak_ver(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect("tarot_vadisi.db")
     cursor = conn.cursor()
     
-    # Kullanıcı veritabanında var mı kontrol et
     cursor.execute("SELECT kullanilan_hak FROM kullanicilar WHERE telegram_id = ?", (hedef_id,))
     row = cursor.fetchone()
     
     if not row:
-        # Kullanıcı henüz botu başlatmamışsa kaydını açıp hakkını düşürebiliriz
         cursor.execute("INSERT INTO kullanicilar (telegram_id, kullanilan_hak, son_tarih) VALUES (?, ?, ?)", 
                        (hedef_id, max(0, GUNLUK_LIMIT - ek_hak), datetime.now().strftime("%Y-%m-%d")))
     else:
-        # Mevcut kullanılan haktan eklenen miktar kadar düşerek hak tanımış oluyoruz
         mevcut_kullanilan = row[0] or 0
         yeni_kullanilan = max(0, mevcut_kullanilan - ek_hak)
         cursor.execute("UPDATE kullanicilar SET kullanilan_hak = ? WHERE telegram_id = ?", (yeni_kullanilan, hedef_id))
@@ -242,7 +239,6 @@ async def hak_ver(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     
-    # Kullanıcıya da bildirim gönder
     try:
         await context.bot.send_message(
             chat_id=hedef_id,
@@ -511,13 +507,13 @@ def main():
     application.add_handler(CommandHandler("onay", onay_ver))
     application.add_handler(CommandHandler("id", id_ogren))
     application.add_handler(CommandHandler("duyuru", duyuru_gonder))
-    application.add_handler(CommandHandler("hakver", hak_ver))  # 🎁 Yeni eklenen hak verme komutu
+    application.add_handler(CommandHandler("hakver", hak_ver))
     application.add_handler(CallbackQueryHandler(button_click))
     
     application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_media))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
 
-    print("🔮 Tarot Vadisi Hak Verme Özellikli Sürüm Başlatıldı...")
+    print("🔮 Tarot Vadisi gemini-3.8-flash Güncel Modeliyle Başlatıldı...")
     application.run_polling()
 
 if __name__ == "__main__":

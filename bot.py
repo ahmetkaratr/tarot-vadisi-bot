@@ -8,21 +8,21 @@ import threading
 from datetime import datetime
 from flask import Flask
 
+# Flask Ayarları (Render'ın Botu Kapatmaması İçin)
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is alive!"
+    return "🔮 Tarot Vadisi Asenkron Bot Aktif ve Hızlı!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+    # Flask asenkron döngüyü bozmamak için threaded=True olmalı
+    app.run(host='0.0.0.0', port=port, threaded=True)
 
-# Flask sunucusunu arka planda başlat (Render port hatasını önlemek için)
-threading.Thread(target=run_flask, daemon=True).start()
-
+# Kütüphaneleri Yükle
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 from google import genai
 from PIL import Image
@@ -39,9 +39,14 @@ YONETICI_ID = 123456789             # Telegram ID'niz (Öğrenmek için bota /id
 YONETICI_KULLANICI_ADI = "ahmetkaratr"  # Telegram kullanıcı adınız
 GUNLUK_LIMIT = 2                   # Kullanıcı başına günlük ücretsiz fal hakkı
 
+# Gemini İstemcisi
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+# Logging Ayarları
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # Veritabanı kurulumu ve sütun kontrolleri
@@ -63,7 +68,7 @@ def init_db():
         try:
             cursor.execute(f"ALTER TABLE kullanicilar ADD COLUMN {col}")
         except sqlite3.OperationalError:
-            pass
+            pass # Sütun zaten varsa hata verme
     conn.commit()
     conn.close()
 
@@ -103,16 +108,27 @@ def hak_kontrol_ve_duser(user_id):
             conn.close()
             return True, kullanilan_hak + 1
 
-# Google'ın zorunlu kıldığı 'gemini-3.8-flash' modeli entegrasyonu
-async def gemini_istek_gonder_sdk(contents, model='gemini-3.8-flash'):
-    loop = asyncio.get_running_loop()
-    def call_gemini():
-        response = gemini_client.models.generate_content(
-            model=model,
-            contents=contents
-        )
-        return response.text
-    return await loop.run_in_executor(None, call_gemini)
+# ===========================================================================
+# 🚀 MÜTHİŞ GÜNCELLEME: TAM ASENKRON GEMINI İSTEK FONKSİYONU
+# ===========================================================================
+# Bu fonksiyon botu kilitlemez, arka planda çalışır.
+async def gemini_istek_gonder_async(contents, model='gemini-3.8-flash'):
+    # Senkron API çağrısını asenkron bir thread'e taşıyoruz
+    def sync_call():
+        try:
+            # Burası senkron kütüphane çağrısı
+            response = gemini_client.models.generate_content(
+                model=model,
+                contents=contents
+            )
+            return response.text
+        except Exception as e:
+            logger.error(f"Gemini API senkron çağrı hatası: {e}")
+            raise e
+
+    # asyncio.to_thread, kütüphaneyi kilitlemeden arka planda çalıştırır (Python 3.9+)
+    # Eğer Render Python sürümü eskiyse run_in_executor kullanılabilir.
+    return await asyncio.to_thread(sync_call)
 
 # /start ekranı
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -138,14 +154,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.message:
-        await update.message.reply_text(mesaj, reply_markup=reply_markup, parse_mode="Markdown")
+        await update.message.reply_text(mesaj, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN)
     elif update.callback_query:
-        await update.callback_query.message.reply_text(mesaj, reply_markup=reply_markup, parse_mode="Markdown")
+        await update.callback_query.message.reply_text(mesaj, reply_markup=reply_markup, parse_mode=constants.ParseMode.MARKDOWN)
 
 # Kullanıcı ID Öğrenme Komutu
 async def id_ogren(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    await update.message.reply_text(f"🆔 Telegram ID'niz: `{user_id}`", parse_mode="Markdown")
+    await update.message.reply_text(f"🆔 Telegram ID'niz: `{user_id}`", parse_mode=constants.ParseMode.MARKDOWN)
 
 # 📢 YÖNETİCİ TOPLU DUYURU KOMUTU
 async def duyuru_gonder(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -157,9 +173,8 @@ async def duyuru_gonder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
         await update.message.reply_text(
-            "⚠️ *Duyuru Metni Eksik!*\n\n"
-            "Kullanım:\n`/duyuru Mesajınızı buraya yazın...`",
-            parse_mode="Markdown"
+            "⚠️ *Duyuru Metni Eksik!*\n\nKullanım:\n`/duyuru Mesajınızı buraya yazın...`",
+            parse_mode=constants.ParseMode.MARKDOWN
         )
         return
 
@@ -174,21 +189,21 @@ async def duyuru_gonder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     basarili = 0
     basarisiz = 0
 
-    await update.message.reply_text(f"🚀 Duyuru {len(kullanicilar)} kayıtlı kullanıcıya gönderiliyor...")
+    status_msg = await update.message.reply_text(f"🚀 Duyuru {len(kullanicilar)} kayıtlı kullanıcıya gönderiliyor...")
 
     for (k_id,) in kullanicilar:
         try:
-            await context.bot.send_message(chat_id=k_id, text=duyuru_metni, parse_mode="Markdown")
+            await context.bot.send_message(chat_id=k_id, text=duyuru_metni, parse_mode=constants.ParseMode.MARKDOWN)
             basarili += 1
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05) # Flood kontrol
         except Exception:
             basarisiz += 1
 
-    await update.message.reply_text(
-        f"✅ *Duyuru İşlemi Tamamlandı!*\n\n"
-        f"🟢 Başarılı İletilen: {basarili}\n"
-        f"🔴 Başarısız / Engelleyen: {basarisiz}",
-        parse_mode="Markdown"
+    await context.bot.edit_message_text(
+        chat_id=update.effective_chat.id,
+        message_id=status_msg.message_id,
+        text=(f"✅ *Duyuru İşlemi Tamamlandı!*\n\n🟢 Başarılı İletilen: {basarili}\n🔴 Başarısız / Engelleyen: {basarisiz}"),
+        parse_mode=constants.ParseMode.MARKDOWN
     )
 
 # 🎁 YÖNETİCİ HAK VERME KOMUTU (/hakver <user_id> <ek_hak>)
@@ -201,10 +216,8 @@ async def hak_ver(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if len(context.args) < 2:
         await update.message.reply_text(
-            "⚠️ *Eksik Parametre!*\n\n"
-            "Kullanım Şekli:\n`/hakver <kullanici_id> <verilecek_hak_sayisi>`\n\n"
-            "Örnek: `/hakver 123456789 3`",
-            parse_mode="Markdown"
+            "⚠️ *Eksik Parametre!*\n\nKullanım Şekli:\n`/hakver <kullanici_id> <verilecek_hak_sayisi>`",
+            parse_mode=constants.ParseMode.MARKDOWN
         )
         return
 
@@ -217,7 +230,6 @@ async def hak_ver(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = sqlite3.connect("tarot_vadisi.db")
     cursor = conn.cursor()
-    
     cursor.execute("SELECT kullanilan_hak FROM kullanicilar WHERE telegram_id = ?", (hedef_id,))
     row = cursor.fetchone()
     
@@ -233,20 +245,17 @@ async def hak_ver(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     await update.message.reply_text(
-        f"✅ *Başarıyla Hak Tanındı!*\n\n"
-        f"👤 Hedef ID: `{hedef_id}`\n"
-        f"🎁 Eklenen Hak: *+{ek_hak}*",
-        parse_mode="Markdown"
+        f"✅ *Başarıyla Hak Tanındı!*\n\n👤 Hedef ID: `{hedef_id}`\n🎁 Eklenen Hak: *+{ek_hak}*",
+        parse_mode=constants.ParseMode.MARKDOWN
     )
     
     try:
         await context.bot.send_message(
             chat_id=hedef_id,
-            text=f"🎁 *Müjde!* Yönetici tarafından hesabınıza *+{ek_hak} adet* ekstra fal hakkı tanımlandı! Dilediğiniz gibi fal baktırabilirsiniz ✨",
-            parse_mode="Markdown"
+            text=f"🎁 *Müjde!* Yönetici tarafından hesabınıza *+{ek_hak} adet* ekstra fal hakkı tanımlandı!",
+            parse_mode=constants.ParseMode.MARKDOWN
         )
-    except Exception:
-        pass
+    except Exception: pass
 
 # Menü Tıklamaları ve İnteraktif Akış
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -282,10 +291,9 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         
         await query.edit_message_text(
-            f"🎯 *Niyetiniz Kaydedildi:* `{niyet_konusu}`\n\n"
-            f"📸 Şimdi lütfen bota net bir *{tip}* fotoğrafı gönderin.",
+            f"🎯 *Niyetiniz Kaydedildi:* `{niyet_konusu}`\n\n📸 Şimdi lütfen bota net bir *{tip}* fotoğrafı gönderin.",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            parse_mode=constants.ParseMode.MARKDOWN
         )
         return
 
@@ -304,7 +312,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🔮 *Bakıma Başlamadan Önce Niyetinizi Seçin:*",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            parse_mode=constants.ParseMode.MARKDOWN
         )
 
     # Burç Seçimi Menüsü
@@ -316,26 +324,26 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len(row) == 3:
                 keyboard.append(row)
                 row = []
-        if row:
-            keyboard.append(row)
+        if row: keyboard.append(row)
         keyboard.append([InlineKeyboardButton("🔙 Geri Dön", callback_data="main_menu")])
-        await query.edit_message_text("🌟 *Lütfen Burcunuzu Seçin:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.edit_message_text("🌟 *Lütfen Burcunuzu Seçin:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=constants.ParseMode.MARKDOWN)
 
     elif data.startswith("burcyorum_"):
         secilen_burc = data.split("_")[1]
-        await query.edit_message_text(f"✨ *{secilen_burc} burcu için enerjiniz okunuyor...* 🔮", parse_mode="Markdown")
+        await query.edit_message_text(f"✨ *{secilen_burc} burcu için enerjiniz okunuyor...* 🔮", parse_mode=constants.ParseMode.MARKDOWN)
         
-        prompt = f"Sen Tarot Vadisi astrologusun. {secilen_burc} burcu için bugün geçerli olacak tam 2 cümlelik gizemli ve etkileyici bir günlük aura yorumu yaz."
+        prompt = f"Sen Tarot Vadisi astrologusun. {secilen_burc} burcu için bugün geçerli olacak tam 2 cümlelik günlük aura yorumu yaz."
         try:
-            yorum = await gemini_istek_gonder_sdk(prompt)
+            # ASENKRON ÇAĞRI
+            yorum = await gemini_istek_gonder_async(prompt)
             keyboard = [
-                [InlineKeyboardButton("💎 VIP Derin Burç Analizi Al", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")], 
+                [InlineKeyboardButton("💎 VIP Derin Burç Analizi", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")], 
                 [InlineKeyboardButton("🔙 Geri Dön", callback_data="burc_secim"), InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]
             ]
             await query.message.reply_text(
-                f"🌟 *{secilen_burc} - Günün Aura Yorumu:*\n\n{yorum}\n\n✨ *Şanslı Rengin:* {random.choice(['Safir Mavisi', 'Zümrüt Yeşili', 'Kehribar'])}",
+                f"🌟 *{secilen_burc} - Günün Aura Yorumu:*\n\n{yorum}",
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
+                parse_mode=constants.ParseMode.MARKDOWN
             )
         except Exception as e:
             logger.error(f"Burç hatası: {e}")
@@ -345,30 +353,25 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "evet_hayir":
         hak_var, yeni_hak = hak_kontrol_ve_duser(user_id)
         if not hak_var:
-            keyboard = [
-                [InlineKeyboardButton("💎 Sınırsız VIP Bakım Al", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")],
-                [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]
-            ]
+            keyboard = [[InlineKeyboardButton("💎 Sınırsız VIP Bakım Al", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")], [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]]
             await query.edit_message_text(
-                "⚠️ *Günlük 2 Ücretsiz Fal Hakkınızı Doldurdunuz!*\n\n"
-                "Sınırsız soru sormak, detaylı harita analizi yaptırmak ve birebir canlı seansa katılmak için VIP paketlerimizi tercih edebilirsiniz.",
+                "⚠️ *Günlük 2 Ücretsiz Fal Hakkınızı Doldurdunuz!*\n\nSınırsız bakım için VIP paketlerimizi tercih edebilirsiniz.",
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
+                parse_mode=constants.ParseMode.MARKDOWN
             )
             return
 
-        await query.edit_message_text("🔮 *Kartınız çekiliyor...* 🔮", parse_mode="Markdown")
+        await query.edit_message_text("🔮 *Kartınız çekiliyor...* 🔮", parse_mode=constants.ParseMode.MARKDOWN)
         kart = random.choice(TAROT_CARDS)
         prompt = f"Kullanıcı {kart} kartını çekti. Sadece 'EVET' veya 'HAYIR' ile başla ve yanına en fazla 1 cümlelik mistik bir ipucu yaz."
         try:
-            cevap_metni = await gemini_istek_gonder_sdk(prompt)
-            keyboard = [
-                [InlineKeyboardButton("💎 Detaylı Özel Açılım İstiyorum", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")],
-                [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]
-            ]
+            # ASENKRON ÇAĞRI
+            cevap_metni = await gemini_istek_gonder_async(prompt)
+            keyboard = [[InlineKeyboardButton("💎 Özel Açılım İstiyorum", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")], [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]]
             await query.message.reply_text(
                 f"🃏 *Seçilen Kart:* {kart}\n\n✨ *Cevap:* {cevap_metni}\n\n*(Kalan Ücretsiz Hakkınız: {GUNLUK_LIMIT - yeni_hak})*",
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=constants.ParseMode.MARKDOWN
             )
         except Exception as e:
             logger.error(f"Evet/Hayir hatası: {e}")
@@ -383,11 +386,9 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [[InlineKeyboardButton("🔙 Geri Dön", callback_data="main_menu")]]
         await query.edit_message_text(
-            f"👑 *{paket_adi} Randevu Talebi*\n\n"
-            "Detaylı analiz için şu bilgileri **tek mesajda yollayın**:\n"
-            "1️⃣ İsim & Soyisim\n2️⃣ Doğum Tarihi & Burç\n3️⃣ Soru / Niyet",
+            f"👑 *{paket_adi} Randevu Talebi*\n\nDetaylı analiz için şu bilgileri **tek mesajda yollayın**:\n1️⃣ İsim & Soyisim\n2️⃣ Doğum Tarihi & Burç\n3️⃣ Soru / Niyet",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            parse_mode=constants.ParseMode.MARKDOWN
         )
 
     conn.close()
@@ -417,104 +418,112 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "✅ *Bilgileriniz alındı!* Randevu saatini netleştirmek için doğrudan baş falcımıza yazabilirsiniz:",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            parse_mode=constants.ParseMode.MARKDOWN
         )
         try:
             await context.bot.send_message(
                 chat_id=YONETICI_ID,
                 text=f"🚨 *YENİ VIP SEANS TALEBİ!*\n👤 @{user_name}\n🆔 `{user_id}`\n📦 Paket: {paket}\n📝 Bilgiler:\n{kullanici_bilgisi}",
-                parse_mode="Markdown"
+                parse_mode=constants.ParseMode.MARKDOWN
             )
-        except Exception:
-            pass
+        except Exception: pass
         return
 
     # Fotoğraflı Fal Bakımı (Limit Kontrollü)
     if durum in ["kahve_fali", "el_fali"]:
         hak_var, yeni_hak = hak_kontrol_ve_duser(user_id)
         if not hak_var:
-            keyboard = [
-                [InlineKeyboardButton("💎 Sınırsız VIP Seans Al", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")],
-                [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]
-            ]
+            keyboard = [[InlineKeyboardButton("💎 Sınırsız VIP Seans Al", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")], [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]]
             await update.message.reply_text(
-                "⚠️ *Günlük 2 Ücretsiz Fal Hakkınızı Doldurdunuz!*\n\n"
-                "Detaylı, uzun ve sınırsız açılımlar için VIP seans paketlerimizi inceleyebilirsiniz.",
+                "⚠️ *Günlük 2 Ücretsiz Fal Hakkınızı Doldurdunuz!*\n\nDetaylı bakımlar için VIP paketlerimizi inceleyebilirsiniz.",
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
+                parse_mode=constants.ParseMode.MARKDOWN
             )
             conn.close()
             return
 
-        await update.message.reply_text("🔮 *Fotoğrafınız inceleniyor... (Yaklaşık 30 sn)*", parse_mode="Markdown")
+        # Yükleme mesajı gönder ve ID'sini sakla
+        loading_msg = await update.message.reply_text("🔮 *Fotoğrafınız alındı! Enerji akışı inceleniyor...* (Yaklaşık 30 sn)", parse_mode=constants.ParseMode.MARKDOWN)
         
         try:
+            # Fotoğrafı indir
             if update.message.photo:
                 photo_file = await update.message.photo[-1].get_file()
-            elif update.message.document:
+            elif update.message.document and update.message.document.mime_type.startswith("image"):
                 photo_file = await update.message.document.get_file()
             else:
                 conn.close()
+                await context.bot.edit_message_text(chat_id=user_id, message_id=loading_msg.message_id, text="⚠️ Lütfen geçerli bir fotoğraf gönderin.")
                 return
 
             os.makedirs("downloads", exist_ok=True)
             img_path = f"downloads/{user_id}.jpg"
             await photo_file.download_to_drive(img_path)
             
+            # Gemini Prompt
             prompt = (
                 f"Sen Tarot Vadisi falcısısın. Kullanıcı {niyet} konusuyla ilgili fotoğraf yolladı. "
-                "Cevabın ÇOK KISA olsun (en fazla 2 cümle). Fotoğraftan öne çıkan 1 belirgin sembolü söyle, "
-                "ardından 'Çok daha derin bir detay belirdi ama bunu VIP seansımızda konuşabiliriz...' gibi heyecanlandırıcı bir cümleyle bitir."
+                "Cevabın mistik ama kısa olsun (en fazla 2 cümle). Fotoğraftan öne çıkan 1 sembolü söyle, "
+                "ardından 'Çok daha derin detaylar VIP seansımızda...' gibi bir cümleyle bitir."
             )
             
             img = Image.open(img_path)
-            cevap_metni = await gemini_istek_gonder_sdk([prompt, img])
             
-            keyboard = [
-                [InlineKeyboardButton("💎 Bu Falın Detayını VIP Seansla Öğren", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")],
-                [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # 🚀 ASENKRON GEMINI ÇAĞRISI (Bot burada kilitlenmez)
+            cevap_metni = await gemini_istek_gonder_async([prompt, img])
             
-            await update.message.reply_text(
-                f"✨ *Ön Fal Analizi ({niyet}):*\n\n{cevap_metni}\n\n*(Kalan Ücretsiz Hakkınız: {GUNLUK_LIMIT - yeni_hak})*",
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
+            keyboard = [[InlineKeyboardButton("💎 Falın Detayını VIP Seansla Öğren", url=f"https://t.me/{YONETICI_KULLANICI_ADI}")], [InlineKeyboardButton("🏠 Ana Menü", callback_data="main_menu")]]
+            
+            # Yükleme mesajını fal cevabıyla güncelle
+            await context.bot.edit_message_text(
+                chat_id=user_id,
+                message_id=loading_msg.message_id,
+                text=f"✨ *Ön Fal Analizi ({niyet}):*\n\n{cevap_metni}\n\n*(Kalan Ücretsiz Hakkınız: {GUNLUK_LIMIT - yeni_hak})*",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=constants.ParseMode.MARKDOWN
             )
             
+            # Durumu sıfırla
             cursor.execute("UPDATE kullanicilar SET durum = 'yok', paket = NULL, niyet = NULL WHERE telegram_id = ?", (user_id,))
             conn.commit()
+            
+            # İndirilen dosyayı temizle
+            os.remove(img_path)
+
         except Exception as e:
             logger.error(f"Fotoğraf işleme hatası: {e}")
             traceback.print_exc()
-            await update.message.reply_text("🔮 Fotoğraf incelenirken bir sorun oluştu, lütfen tekrar deneyin.")
+            await context.bot.edit_message_text(chat_id=user_id, message_id=loading_msg.message_id, text="🔮 Enerjiler şu an çok yoğun, fotoğraf incelenemedi. Lütfen tekrar deneyin.")
 
     conn.close()
 
-async def onay_ver(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id != YONETICI_ID:
-        return
-    await update.message.reply_text("✅ Komut işlendi.")
-
 def main():
     if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
-        print("HATA: Token eksik!")
+        print("HATA: Tokenler eksik!")
         return
 
+    # Flask'ı ayrı bir thread'de başlat
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    # Telegram Uygulamasını Başlat
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+    # Komut ve Mesaj Yakalayıcılar
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("onay", onay_ver))
     application.add_handler(CommandHandler("id", id_ogren))
     application.add_handler(CommandHandler("duyuru", duyuru_gonder))
     application.add_handler(CommandHandler("hakver", hak_ver))
+    
     application.add_handler(CallbackQueryHandler(button_click))
     
-    application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, handle_media))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
+    # Medya ve Metin İşleme (Asenkron)
+    application.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE | filters.TEXT & ~filters.COMMAND, handle_media))
 
-    print("🔮 Tarot Vadisi gemini-3.8-flash Güncel Modeliyle Başlatıldı...")
-    application.run_polling()
+    print("🔮 Tarot Vadisi Yüksek Hızlı Asenkron Sürüm Başlatıldı...")
+    
+    # Botu çalıştır (Asenkron döngüyü başlatır)
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()

@@ -35,7 +35,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # ===========================================================================
 # ⚙️ YÖNETİCİ / İŞLETME AYARLARI & LİMİTLER
 # ===========================================================================
-YONETICI_ID = 123456789             # Telegram ID'niz (Öğrenmek için bota /id yazabilirsiniz)
+YONETICI_ID = 943811337             # Telegram ID'niz (Öğrenmek için bota /id yazabilirsiniz)
 YONETICI_KULLANICI_ADI = "ahmetkaratr"  # Telegram kullanıcı adınız
 GUNLUK_LIMIT = 2                   # Kullanıcı başına günlük ücretsiz fal hakkı
 
